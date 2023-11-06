@@ -1,7 +1,7 @@
 import random
 from collections import deque
 import pdb
-good luck
+hello world
 
 
 class Cell:
