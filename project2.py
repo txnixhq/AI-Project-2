@@ -13,10 +13,12 @@ class Cell:
     
 
 class Ship:
-    def __init__(self, D):
+    def __init__(self, D, detectionRange):
         self.D = D
         self.grid= self.createGrid(D)
+        self.detectionRange = detectionRange
         self.botPosition = None
+        self.detectionSQ= []
         self.openRandom()
         self.openCells()
         self.openRandomClosedNeighbors()
@@ -112,10 +114,27 @@ class Ship:
             self.botPosition = (i, j)
 
     def placeLeak(self):
-        open_cells = [(i, j) for i in range(self.D) for j in range(self.D) if not self.grid[i][j].isClosed]
-        if open_cells:
-            i, j = random.choice(open_cells)
+        bot_x, bot_y = self.botPosition
+
+        # Calculate the detection square boundaries
+        detection_min_x = bot_x - self.detectionRange
+        detection_max_x = bot_x + self.detectionRange
+        detection_min_y = bot_y - self.detectionRange
+        detection_max_y = bot_y + self.detectionRange
+
+        # Create a list of open cells outside the detection square
+        outside_detection_square = [(i, j) for i in range(self.D) for j in range(self.D)
+                                    if not self.grid[i][j].isClosed and
+                                    (i < detection_min_x or i > detection_max_x or
+                                    j < detection_min_y or j > detection_max_y)]
+
+        if outside_detection_square:
+            i, j = random.choice(outside_detection_square)
             self.grid[i][j].hasLeak = True
+
+        # Store the coordinates of the detection square
+        self.detection_square = [(detection_min_x, detection_max_x, detection_min_y, detection_max_y)]
+
 
 
                             
@@ -133,272 +152,11 @@ class Ship:
     #utilize different algorithms to find the shortest path
     def calculateShortestPath(self, botNo):
         
-        if botNo == 1:
-            #initialize queue for BFS
-            queue = [(self.botPosition, [])]
-            
-            visited = set()
-
-            while queue:
-                current, path = queue.pop(0)
-                row, col = current
-
-                
-
-                if self.grid[row][col].hasButton:
-                    # found button, return path
-                    return path
-                
-                
-
-                for neighbor in self.grid[row][col].neighbors:
-                    neighbor_row, neighbor_col = None, None
-                    for i in range(self.D):
-                        for j in range(self.D):
-                            if self.grid[i][j] == neighbor:
-                                neighbor_row, neighbor_col = i, j
-                                break
-
-                    #Skip if neighbor is same or the closed or the init fire or visited
-                    if (neighbor_row, neighbor_col) == self.botPosition or \
-                        self.grid[neighbor_row][neighbor_col].isClosed or \
-                        (neighbor_row, neighbor_col) == self.initFire or \
-                        (neighbor_row, neighbor_col) in visited:
-                        continue
-
-                    #add the neighbor to visited set
-                    visited.add((neighbor_row, neighbor_col))
-                    #add the neighbor to queue with the updated path
-                    queue.append(((neighbor_row, neighbor_col), path + [(neighbor_row, neighbor_col)]))
-
-            # If no valid path is found return an empty path
-            return []
-        
-        #bot 2
-        elif botNo == 2:
-            queue = [(self.botPosition, [])]
-
-            visited = set()
-
-            while queue:
-                current, path = queue.pop(0)
-                row, col = current
-
-                if self.grid[row][col].hasButton:
-                    return path
-                
-                
-
-                for neighbor in self.grid[row][col].neighbors:
-                    neighbor_row, neighbor_col = None, None
-                    for i in range(self.D):
-                        for j in range(self.D):
-                            if self.grid[i][j] == neighbor:
-                                neighbor_row, neighbor_col = i, j
-                                break
-
-                    # Skip if neighbor is same or the closed or fire or visited
-                    if (neighbor_row, neighbor_col) == self.botPosition or \
-                        self.grid[neighbor_row][neighbor_col].isClosed or \
-                        self.grid[neighbor_row][neighbor_col].hasFire or \
-                        (neighbor_row, neighbor_col) in visited:
-                        continue
-
-                    # Add the neighbor to the visited set
-                    visited.add((neighbor_row, neighbor_col))
-                    # Add the neighbor to the queue with the updated path
-                    queue.append(((neighbor_row, neighbor_col), path + [(neighbor_row, neighbor_col)]))
-
-            # If no valid path is found, return an empty path
-            return []
-        
-        #bot 3
-        elif botNo== 3:
-            # Define a set to store the cells to avoid
-            cells_to_avoid = set()
-
-            # Add the current fire cells and their adjacent cells to the set of cells to avoid
-            for i in range(self.D):
-                for j in range(self.D):
-                    if self.grid[i][j].hasFire:
-                        cells_to_avoid.add((i, j))
-                    if self.grid[i][j].isClosed:
-                        cells_to_avoid.add((i, j))
-
-            queue = [(self.botPosition, [])]
-
-            visited = set()
-
-            while queue:
-                current, path = queue.pop(0)
-                row, col = current
-
-                if self.grid[row][col].hasButton:
-                    return path
-                
-                
-
-                for neighbor in self.grid[row][col].neighbors:
-                    neighbor_row, neighbor_col = None, None
-                    for i in range(self.D):
-                        for j in range(self.D):
-                            if self.grid[i][j] == neighbor:
-                                neighbor_row, neighbor_col = i, j
-                                break
-
-                    # Skip if neighbor is same or the closed or fire or visited
-                    if (neighbor_row, neighbor_col) == self.botPosition or \
-                        self.grid[neighbor_row][neighbor_col].isClosed or \
-                        (neighbor_row, neighbor_col) in cells_to_avoid or \
-                        (neighbor_row, neighbor_col) in visited:
-                        continue
-
-                    # Add the neighbor to the visited set
-                    visited.add((neighbor_row, neighbor_col))
-                    # Add the neighbor to the queue with the updated path
-                    queue.append(((neighbor_row, neighbor_col), path + [(neighbor_row, neighbor_col)]))
-
-            # If no valid path is found, return an empty path
-            return []
-
-
-        #this is bot 4: uses A*, dynamic planning and adaptive heuristic
-        elif botNo== 4:
-            #define a set to store the cells to avoid
-            cells_to_avoid = set()
-            nearest_fire = None
-            nearest_fire_dist = float('inf')
-
-            #add the current fire cells and their adjacent cells to the set of cells to avoid
-            for i in range(self.D):
-                for j in range(self.D):
-                    if self.grid[i][j].hasFire:
-                        cells_to_avoid.add((i, j))
-                        # Calculate distance to the nearest fire cell
-                        fire_dist= abs(i - self.botPosition[0])+ abs(j - self.botPosition[1])
-                        if fire_dist < nearest_fire_dist:
-                            nearest_fire_dist = fire_dist
-                            nearest_fire = (i, j)
-
-                    if self.grid[i][j].isClosed:
-                        cells_to_avoid.add((i, j))
-
-            # Initialize A* search with a priority queue
-            pQueue = [(0, self.botPosition, [])]  # (f-score, current cell, path)
-            closedSet = set()
-
-            while pQueue:
-                _, current, path = min(pQueue)  # Get the cell with the lowest f-score
-                pQueue.remove((_, current, path))
-                closedSet.add(current)
-                row, col = current
-
-                if self.grid[row][col].hasButton:
-                    # Found the button, return the path
-                    return path
-
-                for neighbor in self.grid[row][col].neighbors:
-                    neighbor_row, neighbor_col = None, None
-                    for i in range(self.D):
-                        for j in range(self.D):
-                            if self.grid[i][j] == neighbor:
-                                neighbor_row, neighbor_col = i, j
-                                break
-
-                    if (neighbor_row, neighbor_col) == self.botPosition or \
-                        self.grid[neighbor_row][neighbor_col].isClosed or \
-                        (neighbor_row, neighbor_col) in cells_to_avoid or \
-                        (neighbor_row, neighbor_col) in closedSet:
-                        continue
-
-                    l = len(path)  # The cost of the path so far
-                    h = abs(neighbor_row - self.buttonPos[0]) + abs(neighbor_col - self.buttonPos[1])  # Manhattan distance heuristic
-                    # Add the adaptive heuristic (weight it based on the nearest fire cell)
-                    if nearest_fire_dist > 0:
-                        h += 1 /(nearest_fire_dist)
-                    f = l + h
-
-                    if (f, (neighbor_row, neighbor_col), path + [(neighbor_row, neighbor_col)]) not in pQueue:
-                        pQueue.append((f, (neighbor_row, neighbor_col), path + [(neighbor_row, neighbor_col)]))
-
-            # If no valid path is found, return an empty path
-            return []
+        pass
 
     #main method to execute the tasks in order
-    def task(self, botNo):
-        if botNo == 1:
-        
-            path = self.calculateShortestPath(botNo)
-
-            if not path:
-                return "no path - FAIL"
-
-            while path:
-
-                self.printGrid()
-                print("//////////////////////")
-
-                # Pick the first cell from the path and update the bot's position
-                next_cell = path.pop(0)
-                self.updateBotPosition(next_cell)
-
-                if self.grid[self.botPosition[0]][self.botPosition[1]].hasButton:
-                    return "SUCCESS"
-                
-                self.spreadFire()
-                
-
-                if self.grid[self.botPosition[0]][self.botPosition[1]].hasFire or \
-                    self.grid[self.buttonPos[0]][self.buttonPos[1]].hasFire:
-                        return "FAIL"
-                    
-                
-
-
-            return "FAIL"
-        
-        else:
-        
-
-
-            while not self.failed and not self.success:
-                # Attempt to find a path to the button
-                path = self.calculateShortestPath(botNo)
-                #print(path)
-
-                self.printGrid()
-                print("//////////////////////")
-                
-                if not path:
-                    # If no path is found, try to find a path based only on current fire cells
-                    path = self.calculateShortestPath(2)
-           
-                    if path:
-                        next_cell = path[0]
-                        self.updateBotPosition(next_cell)
-                    elif not path:
-                        # Handle the case when neither path is found
-                        self.failed = True
-                        return "no path - FAIL"
-
-                if path:
-                    # If a valid path is found, move the bot
-                    next_cell = path[0]
-                    self.updateBotPosition(next_cell)
-
-
-
-                if self.botPosition == self.buttonPos:
-                    self.success = True
-                    return "SUCCESS"
-
-                self.spreadFire()
-
-                if self.grid[self.botPosition[0]][self.botPosition[1]].hasFire or \
-                    self.grid[self.buttonPos[0]][self.buttonPos[1]].hasFire:
-                    self.failed = True
-                    return "FAIL"
-
+    def task(self):
+        pass
  
 
     #visual representation of the grid        
@@ -421,15 +179,19 @@ class Ship:
 
 if __name__ == "__main__":
     D = 50
-    ship = Ship(D)
+    ship = Ship(D, 2)
 
-    botNo = int(input("Choose bot (1, 2, 3, or 4): "))
-    result = ship.task(botNo)
+
+    #result = ship.task()
     ship.printGrid()
-    print(result)
+
+    for square in ship.detection_square:
+            print(f"Detection Square Coordinates: {square}")
+    """print(result)
     if result == "SUCCESS":
         print("Mission Successful!")
     else:
         print("Mission Failed")
+        """
 
 
