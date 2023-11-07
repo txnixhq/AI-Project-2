@@ -1,32 +1,27 @@
 import random
 from collections import deque
 import pdb
-hello world
+
 
 
 class Cell:
     def __init__(self):
         self.isClosed= True
         self.hasBot= False
-        self.hasFire= False
-        self.hasButton = False 
+        self.hasLeak = False
         self.neighbors= []
     
 
 class Ship:
-    def __init__(self, D, flammability):
+    def __init__(self, D):
         self.D = D
-        self.flammability= flammability
         self.grid= self.createGrid(D)
         self.botPosition = None
-        self.initFire = None
-        self.buttonPos = None
         self.openRandom()
         self.openCells()
         self.openRandomClosedNeighbors()
         self.placeBot()
-        self.placeFire()
-        self.placeButton()
+        self.placeLeak()
         self.failed= False
         self.success= False
                    
@@ -116,41 +111,11 @@ class Ship:
             self.grid[i][j].hasBot = True
             self.botPosition = (i, j)
 
-    def placeFire(self):
+    def placeLeak(self):
         open_cells = [(i, j) for i in range(self.D) for j in range(self.D) if not self.grid[i][j].isClosed]
         if open_cells:
             i, j = random.choice(open_cells)
-            self.grid[i][j].hasFire = True
-            self.initFire = (i, j)
-
-    def placeButton(self):
-        open_cells = [(i, j) for i in range(self.D) for j in range(self.D) if not self.grid[i][j].isClosed]
-        if open_cells:
-            i, j = random.choice(open_cells)
-            self.grid[i][j].hasButton = True
-            self.buttonPos = (i, j)
-
-    #spread fire every step from initial fire
-    def spreadFire(self):
-
-        new_fire_cells = []
-
-        for i in range(self.D):
-            for j in range(self.D):
-                if not self.grid[i][j].isClosed:
-                    burning_neighbors = 0
-                    for neighbor in self.grid[i][j].neighbors:
-                        if neighbor.hasFire:
-                            burning_neighbors += 1
-                        
-                    if not self.grid[i][j].hasFire:
-                        probability = 1 - (1 - self.flammability) ** burning_neighbors
-                        if random.random()<probability:
-                            new_fire_cells.append((i, j))
-
-        #update the cells to be on fire
-        for i, j in new_fire_cells:
-            self.grid[i][j].hasFire = True
+            self.grid[i][j].hasLeak = True
 
 
                             
@@ -446,10 +411,8 @@ class Ship:
                     else:
                         if cell.hasBot:
                             rowStr += "\033[92m* \033[0m" #green
-                        elif cell.hasButton:
+                        elif cell.hasLeak:
                             rowStr += "\033[94m* \033[0m" #blue
-                        elif cell.hasFire:
-                            rowStr += "\033[91m* \033[0m" #red
                         else:
                             rowStr += "  "
                 print(rowStr)
@@ -457,9 +420,8 @@ class Ship:
 
 
 if __name__ == "__main__":
-    D = int(input("Enter ship size: "))
-    flammability = float(input("Enter Flammability(q) of the ship (between 0 and 1): "))
-    ship = Ship(D, flammability)
+    D = 50
+    ship = Ship(D)
 
     botNo = int(input("Choose bot (1, 2, 3, or 4): "))
     result = ship.task(botNo)
