@@ -132,10 +132,6 @@ class Ship:
             i, j = random.choice(outside_detection_square)
             self.grid[i][j].hasLeak = True
 
-        # Store the coordinates of the detection square
-        self.detection_square = [(detection_min_x, detection_max_x, detection_min_y, detection_max_y)]
-
-
 
                             
     # updates or moves the bot in the ship according to the path          
@@ -148,16 +144,82 @@ class Ship:
         self.botPosition = new_position
         i, j = new_position
         self.grid[i][j].hasBot = True
+        print(self.botPosition)
 
     #utilize different algorithms to find the shortest path
     def calculateShortestPath(self, botNo):
-        
         pass
 
     #main method to execute the tasks in order
     def task(self):
         pass
- 
+
+    def distance(self, pos1, pos2):
+        x1, y1 = pos1
+        x2, y2 = pos2
+        return abs(x1 - x2) + abs(y1 - y2)
+
+
+    def updateDetectionSquare(self):
+        bot_x, bot_y = self.botPosition
+        detection_min_x = max(bot_x - self.detectionRange, 0)
+        detection_max_x = min(bot_x + self.detectionRange, self.D - 1)
+        detection_min_y = max(bot_y - self.detectionRange, 0)
+        detection_max_y = min(bot_y + self.detectionRange, self.D - 1)
+        self.detectionSQ = [(i, j) for i in range(detection_min_x, detection_max_x + 1)
+                                for j in range(detection_min_y, detection_max_y + 1)]
+        
+    
+    def runDetectionSquare(self):
+        for i, j in self.detectionSQ:
+            if self.grid[i][j].hasLeak:
+                return True
+        return False
+
+    def bot1(self):
+        MAY_CONTAIN_LEAK = [(i, j) for i in range(self.D) for j in range(self.D)
+                            if not self.grid[i][j].isClosed and not self.grid[i][j].hasBot]
+
+        visited_cells = set()  # Keep track of visited cells
+        total_actions = 0
+
+        while not self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+            self.updateDetectionSquare()
+
+            if self.runDetectionSquare():
+                MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).intersection(self.detectionSQ))
+                print("check")
+            else:
+                MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).difference(self.detectionSQ))
+                print("check2")
+
+            next_locations = []
+
+            if MAY_CONTAIN_LEAK:
+                min_distance = float('inf')
+
+                for location in MAY_CONTAIN_LEAK:
+                    dist = self.distance(self.botPosition, location)
+                    if dist < min_distance:
+                        if location not in visited_cells:  # Check if the location has not been visited
+                            min_distance = dist
+                            next_locations = [location]
+                    elif dist == min_distance and location not in visited_cells:
+                        next_locations.append(location)
+
+                if next_locations:
+                    print("yes")
+                    next_location = random.choice(next_locations)
+                    total_actions += self.distance(self.botPosition, next_location)
+                    self.updateBotPosition(next_location)
+                    visited_cells.add(next_location)  # Mark the next location as visited
+                else:
+                    total_actions = -1  # No available next locations
+                    break
+
+        return total_actions
+
+
 
     #visual representation of the grid        
     def printGrid(self):
@@ -179,19 +241,12 @@ class Ship:
 
 if __name__ == "__main__":
     D = 50
-    ship = Ship(D, 2)
+    ship = Ship(D, 5)
 
+    # Run Bot 1
+    total_actions = ship.bot1()
+    print(f"Total actions for Bot 1: {total_actions}")
 
     #result = ship.task()
     ship.printGrid()
-
-    for square in ship.detection_square:
-            print(f"Detection Square Coordinates: {square}")
-    """print(result)
-    if result == "SUCCESS":
-        print("Mission Successful!")
-    else:
-        print("Mission Failed")
-        """
-
 
