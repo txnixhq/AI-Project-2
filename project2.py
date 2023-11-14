@@ -1,5 +1,7 @@
 import random
+import math
 from collections import deque
+import heapq
 import pdb
 
 
@@ -10,13 +12,15 @@ class Cell:
         self.hasBot= False
         self.hasLeak = False
         self.neighbors= []
+        self.prev = None
     
 
 class Ship:
-    def __init__(self, D, detectionRange):
+    def __init__(self, D, detectionRange, alpha):
         self.D = D
         self.grid= self.createGrid(D)
         self.detectionRange = detectionRange
+        self.alpha = alpha
         self.botPosition = None
         self.detectionSQ= []
         self.openRandom()
@@ -147,7 +151,7 @@ class Ship:
         print(self.botPosition)
 
     #utilize different algorithms to find the shortest path
-    def calculateShortestPath(self, botNo):
+    def calculateShortestPathOld(self, botNo):
         pass
 
     #main method to execute the tasks in order
@@ -219,11 +223,200 @@ class Ship:
 
         return total_actions
 
+    def bot2(self):
+        MAY_CONTAIN_LEAK = [(i, j) for i in range(self.D) for j in range(self.D)
+                            if not self.grid[i][j].isClosed and not self.grid[i][j].hasBot]
+
+        visited_cells = set()
+        total_actions = 0
+
+        while not self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+            self.updateDetectionSquare()
+
+            if self.runDetectionSquare():
+                MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).intersection(self.detectionSQ))
+                print("Leak detected!")
+
+                # Create the shortest path to the leak location
+                shortest_path = self.calculateShortestPathBFS(self.botPosition)
+
+                if shortest_path:
+                    # Move along the shortest path
+                    for next_location in shortest_path:
+                        total_actions += 1
+                        self.updateBotPosition(next_location)
+                        visited_cells.add(next_location)
+
+                    # Clear MAY_CONTAIN_LEAK since the leak has been found
+                    MAY_CONTAIN_LEAK = []
+                else:
+                    print("Error: Shortest path not found.")
+                    total_actions = -1
+                    break
+
+            else:
+                MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).difference(self.detectionSQ))
+
+            next_locations = []
+
+            if MAY_CONTAIN_LEAK:
+                min_distance = float('inf')
+
+                for location in MAY_CONTAIN_LEAK:
+                    dist = self.distance(self.botPosition, location)
+                    if dist < min_distance:
+                        if location not in visited_cells:
+                            min_distance = dist
+                            next_locations = [location]
+                    elif dist == min_distance and location not in visited_cells:
+                        next_locations.append(location)
+
+                if next_locations:
+                    next_location = random.choice(next_locations)
+                    total_actions += self.distance(self.botPosition, next_location)
+                    self.updateBotPosition(next_location)
+                    visited_cells.add(next_location)
+                else:
+                    total_actions = -1  # No available next locations
+                    break
+
+        return total_actions
+
+
+    def calculateShortestPathBFS(self, start):
+        # Initialize queue for BFS
+        queue = [(start, [])]
+        visited = set()
+
+        while queue:
+            current, path = queue.pop(0)
+            row, col = current
+
+            # Check if the current cell has a leak
+            if self.grid[row][col].hasLeak:
+                return path  # Found leak, return path
+
+            # Iterate over neighbors
+            for neighbor in self.grid[row][col].neighbors:
+                neighbor_row, neighbor_col = None, None
+                for i in range(self.D):
+                    for j in range(self.D):
+                        if self.grid[i][j] == neighbor:
+                            neighbor_row, neighbor_col = i, j
+                            break
+
+                # Skip if neighbor is closed or visited
+                if self.grid[neighbor_row][neighbor_col].isClosed or (neighbor_row, neighbor_col) in visited:
+                    continue
+
+                # Add the neighbor to the visited set
+                visited.add((neighbor_row, neighbor_col))
+
+                # Add the neighbor to the queue with the updated path
+                queue.append(((neighbor_row, neighbor_col), path + [(neighbor_row, neighbor_col)]))
+
+        # If no valid path to a leak is found, return an empty path
+        return []
+
+    def path_from_to(self, start, end):
+        if start == end:
+            return [end]
+
+        queue = deque([(start, [])])
+        visited = set([start])
+
+        while queue:
+            current, path = queue.popleft()
+            if current == end:
+                return path + [end]
+
+            for neighbor in self.grid[current[0]][current[1]].neighbors:
+                neighbor_position = (self.get_cell_position(neighbor))
+                if neighbor_position not in visited and not neighbor.isClosed:
+                    visited.add(neighbor_position)
+                    queue.append((neighbor_position, path + [current]))
+
+        return []  # No path found
+
+    def get_cell_position(self, cell):
+        for i in range(self.D):
+            for j in range(self.D):
+                if self.grid[i][j] == cell:
+                    return (i, j)
+        return None
+
+
+
+
+    def initialize_probability_matrix(self):
+        open_cells = [(i, j) for i in range(self.D) for j in range(self.D) if not self.grid[i][j].isClosed]
+        num_open_cells = len(open_cells)
+        return {cell: 1.0 / num_open_cells for cell in open_cells}
+
+    def beep_probability(self, distance):
+        return math.exp(-self.alpha * (distance - 1))
+
+    def bot_enters_cell_probability_update(self, probability_matrix, bot_location):
+        for cell in probability_matrix:
+            if cell != bot_location:
+                probability_matrix[cell] += probability_matrix[bot_location] / (len(probability_matrix) - 1)
+        probability_matrix[bot_location] = 0
+        return probability_matrix
+
+    def beep_probability_update(self, probability_matrix, bot_location):
+        for cell in probability_matrix:
+            distance = self.distance(bot_location, cell)
+            probability_matrix[cell] *= self.beep_probability(distance)
+        total_prob = sum(probability_matrix.values())
+        for cell in probability_matrix:
+            probability_matrix[cell] /= total_prob
+        return probability_matrix
+
+    def no_beep_probability_update(self, probability_matrix, bot_location):
+        for cell in probability_matrix:
+            distance = self.distance(bot_location, cell)
+            probability_matrix[cell] *= (1 - self.beep_probability(distance))
+        total_prob = sum(probability_matrix.values())
+        for cell in probability_matrix:
+            probability_matrix[cell] /= total_prob
+        return probability_matrix
+
+    def get_location_of_max_probability(self, probability_matrix):
+        return max(probability_matrix, key=probability_matrix.get)
+
+    def bot3(self):
+        probability_matrix = self.initialize_probability_matrix()
+        total_actions = 0
+
+        while not self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+            probability_matrix = self.bot_enters_cell_probability_update(probability_matrix, self.botPosition)
+
+            # Simulate beep detection
+            distance_to_nearest_leak = min(self.distance(self.botPosition, cell) for cell in probability_matrix if self.grid[cell[0]][cell[1]].hasLeak)
+            beep = random.random() <= self.beep_probability(distance_to_nearest_leak)
+            total_actions += 1
+
+            if beep:
+                probability_matrix = self.beep_probability_update(probability_matrix, self.botPosition)
+            else:
+                probability_matrix = self.no_beep_probability_update(probability_matrix, self.botPosition)
+
+            next_location = self.get_location_of_max_probability(probability_matrix)
+            path = self.path_from_to(self.botPosition, next_location)
+
+            for cell in path:
+                self.botPosition = cell
+                total_actions += 1
+
+        return total_actions
+
+
+
 
 
     #visual representation of the grid        
     def printGrid(self):
-        for row in self.grid:
+        for row in ship.grid:
                 rowStr = ""
                 for cell in row:
                     if cell.isClosed:
@@ -241,12 +434,19 @@ class Ship:
 
 if __name__ == "__main__":
     D = 50
-    ship = Ship(D, 5)
+    alpha = 0.4
+    ship = Ship(D, 5, alpha)
 
-    # Run Bot 1
-    total_actions = ship.bot1()
-    print(f"Total actions for Bot 1: {total_actions}")
 
-    #result = ship.task()
+    bot = 3  # Choose the bot number here
+    if bot == 1:
+        total_actions = ship.bot1()
+    elif bot == 2:
+        total_actions = ship.bot2()
+    elif bot == 3:
+        total_actions = ship.bot3()  # Run bot3
+
+    print(f"Total actions for Bot {bot}: {total_actions}")
     ship.printGrid()
+
 
