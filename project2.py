@@ -12,7 +12,6 @@ class Cell:
         self.hasBot= False
         self.hasLeak = False
         self.neighbors= []
-        self.prev = None
     
 
 class Ship:
@@ -28,8 +27,6 @@ class Ship:
         self.openRandomClosedNeighbors()
         self.placeBot()
         self.placeLeak()
-        self.failed= False
-        self.success= False
                    
 
     #creating the 2D grid
@@ -148,7 +145,6 @@ class Ship:
         self.botPosition = new_position
         i, j = new_position
         self.grid[i][j].hasBot = True
-        print(self.botPosition)
 
     #utilize different algorithms to find the shortest path
     def calculateShortestPathOld(self, botNo):
@@ -190,6 +186,7 @@ class Ship:
         while not self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
             self.updateDetectionSquare()
 
+            total_actions +=1
             if self.runDetectionSquare():
                 MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).intersection(self.detectionSQ))
                 print("check")
@@ -358,8 +355,8 @@ class Ship:
 
     def bot_enters_cell_probability_update(self, probability_matrix, bot_location):
         for cell in probability_matrix:
-            if cell != bot_location:
-                probability_matrix[cell] += probability_matrix[bot_location] / (len(probability_matrix) - 1)
+            if cell != bot_location and probability_matrix[bot_location] != 1:
+                probability_matrix[cell] += probability_matrix[bot_location] / (1-probability_matrix[bot_location]) #(len(probability_matrix) - 1)
         probability_matrix[bot_location] = 0
         return probability_matrix
 
@@ -387,26 +384,38 @@ class Ship:
     def bot3(self):
         probability_matrix = self.initialize_probability_matrix()
         total_actions = 0
+        visited_cells = set()  # Keep track of visited cells
 
         while not self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+            self.printGrid()
+            print(total_actions)
+            visited_cells.add(self.botPosition)
             probability_matrix = self.bot_enters_cell_probability_update(probability_matrix, self.botPosition)
 
             # Simulate beep detection
-            distance_to_nearest_leak = min(self.distance(self.botPosition, cell) for cell in probability_matrix if self.grid[cell[0]][cell[1]].hasLeak)
-            beep = random.random() <= self.beep_probability(distance_to_nearest_leak)
+            beep_detected = random.random() <= self.beep_probability(1)  # Max probability when on the leak
             total_actions += 1
 
-            if beep:
+            if beep_detected:
                 probability_matrix = self.beep_probability_update(probability_matrix, self.botPosition)
             else:
                 probability_matrix = self.no_beep_probability_update(probability_matrix, self.botPosition)
 
-            next_location = self.get_location_of_max_probability(probability_matrix)
-            path = self.path_from_to(self.botPosition, next_location)
+            # Reduce the probability of revisiting cells
+            for cell in visited_cells:
+                probability_matrix[cell] = 0
 
-            for cell in path:
-                self.botPosition = cell
-                total_actions += 1
+            # Find the next location with the highest probability
+            next_location = self.get_location_of_max_probability(probability_matrix)
+            d = self.distance(self.botPosition, next_location)
+
+            # Move to the next location
+            self.updateBotPosition(next_location)
+            total_actions += d
+
+            # If the bot has found the leak, end the loop
+            if self.grid[next_location[0]][next_location[1]].hasLeak:
+                break
 
         return total_actions
 
@@ -422,7 +431,9 @@ class Ship:
                     if cell.isClosed:
                         rowStr += "X "
                     else:
-                        if cell.hasBot:
+                        if cell.hasBot and cell.hasLeak:
+                            rowStr += "\033[93m* \033[0m" #yellow
+                        elif cell.hasBot:
                             rowStr += "\033[92m* \033[0m" #green
                         elif cell.hasLeak:
                             rowStr += "\033[94m* \033[0m" #blue
@@ -433,9 +444,9 @@ class Ship:
 
 
 if __name__ == "__main__":
-    D = 50
-    alpha = 0.4
-    ship = Ship(D, 5, alpha)
+    D = 30
+    alpha = 0.3
+    ship = Ship(D, 10, alpha)
 
 
     bot = 3  # Choose the bot number here
@@ -450,3 +461,10 @@ if __name__ == "__main__":
     ship.printGrid()
 
 
+
+"""
+our bot 3 is taking more actions- action is 1 for detect and distance for move
+bot 7- which is two leaks. how to change/ update the probabilities.
+
+
+"""
