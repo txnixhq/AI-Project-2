@@ -2,6 +2,7 @@ import random
 import math
 from collections import deque
 import heapq
+from itertools import combinations
 import pdb
 
 
@@ -12,6 +13,7 @@ class Cell:
         self.hasBot= False
         self.hasLeak = False
         self.neighbors= []
+
     
 
 class Ship:
@@ -27,6 +29,8 @@ class Ship:
         self.openRandomClosedNeighbors()
         self.placeBot()
         self.placeLeak()
+        self.pair_probabilities = self.initialize_pair_probability_matrix()
+
                    
 
     #creating the 2D grid
@@ -421,7 +425,213 @@ class Ship:
 
 
 
+    def bot5(self):
+        self.placeLeak()
 
+        MAY_CONTAIN_LEAK = [(i, j) for i in range(self.D) for j in range(self.D)
+            if not self.grid[i][j].isClosed and not self.grid[i][j].hasBot]
+       
+        leaks_plugged = 0
+        visited_cells = set()  # Keep track of visited cells
+        total_actions = 0
+        first_leak_plugged = False
+
+        while leaks_plugged<2:
+            self.updateDetectionSquare()
+            total_actions += 1
+            ship.printGrid()
+            if not self.runDetectionSquare():
+                MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).difference(self.detectionSQ))
+                print("check2")
+               
+            elif first_leak_plugged:
+                MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).intersection(self.detectionSQ))
+                print("check")
+               
+
+            next_locations = []
+
+            if MAY_CONTAIN_LEAK:
+                min_distance = float('inf')
+
+                for location in MAY_CONTAIN_LEAK:
+                    dist = self.distance(self.botPosition, location)
+                    if dist < min_distance:
+                        if location not in visited_cells:  # Check if the location has not been visited
+                            min_distance = dist
+                            next_locations = [location]
+                    elif dist == min_distance and location not in visited_cells:
+                        next_locations.append(location)
+
+                if next_locations:
+                    print("yes")
+                    next_location = random.choice(next_locations)
+                    total_actions += self.distance(self.botPosition, next_location)
+                    self.updateBotPosition(next_location)
+                    if self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+                        self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak = False
+                        self.grid[self.botPosition[0]][self.botPosition[1]].isClosed = True
+                        leaks_plugged += 1
+                        first_leak_plugged = True
+                    visited_cells.add(next_location)  # Mark the next location as visited
+                else:
+                    total_actions = -1  # No available next locations
+                    break
+
+        return total_actions
+
+
+    def bot7(self):
+        self.placeLeak()
+        probability_matrix = self.initialize_probability_matrix()
+        total_actions = 0
+        visited_cells = set()
+        leaks_plugged = 0
+
+        while leaks_plugged < 2:
+            self.printGrid()
+            print(total_actions)
+            visited_cells.add(self.botPosition)
+            probability_matrix = self.bot_enters_cell_probability_update(probability_matrix, self.botPosition)
+
+            # Simulate beep detection
+            beep_detected = random.random() <= self.beep_probability(1)  # Max probability when on the leak
+            total_actions += 1
+
+            if beep_detected:
+                probability_matrix = self.beep_probability_update(probability_matrix, self.botPosition)
+            else:
+                probability_matrix = self.no_beep_probability_update(probability_matrix, self.botPosition)
+
+            # Reduce the probability of revisiting cells
+            for cell in visited_cells:
+                probability_matrix[cell] = 0
+
+            # Find the next location with the highest probability
+            next_location = self.get_location_of_max_probability(probability_matrix)
+
+            # Move to the next location
+            self.updateBotPosition(next_location)
+            total_actions += 1
+
+            # If the bot has found the leak, plug it and reset for next leak
+            if self.grid[next_location[0]][next_location[1]].hasLeak:
+                self.grid[next_location[0]][next_location[1]].hasLeak = False
+                leaks_plugged += 1
+               
+        return total_actions
+
+
+
+
+#BOT 8
+
+    def initialize_pair_probability_matrix(self):
+        open_cells = [(i, j) for i in range(self.D) for j in range(self.D) if not self.grid[i][j].isClosed]
+        pair_probabilities = {pair: 1.0 / (len(open_cells) * (len(open_cells) - 1) / 2) for pair in combinations(open_cells, 2)}
+        return pair_probabilities
+
+    def update_pair_probability_on_move(self, pair_probabilities, bot_position):
+        # Update the probability of each pair based on the bot's new position
+        for pair in pair_probabilities.keys():
+            # Calculate the average distance of the bot from the two cells in the pair
+            average_distance = (self.distance(bot_position, pair[0]) + self.distance(bot_position, pair[1])) / 2
+
+            # Update probability based on distance - closer pairs might have a slightly higher probability
+            # The specific formula can vary based on your model's assumptions
+            distance_factor = math.exp(-self.alpha * average_distance)
+            pair_probabilities[pair] *= distance_factor
+
+        # Normalize the probabilities to ensure they sum to 1
+        total_prob = sum(pair_probabilities.values())
+        for pair in pair_probabilities.keys():
+            pair_probabilities[pair] /= total_prob
+
+
+    def update_pair_probability_on_beep(self, pair_probabilities, bot_position):
+        for pair in pair_probabilities:
+            prob_beep = self.beep_probability_for_pair(pair, bot_position)
+            pair_probabilities[pair] *= prob_beep
+        self.normalize_probabilities(pair_probabilities)
+
+    def update_pair_probability_on_no_beep(self, pair_probabilities, bot_position):
+        for pair in pair_probabilities:
+            prob_no_beep = 1 - self.beep_probability_for_pair(pair, bot_position)
+            pair_probabilities[pair] *= prob_no_beep
+        self.normalize_probabilities(pair_probabilities)
+
+
+    def beep_probability_for_pair(self, pair, bot_position):
+        prob_beep_cell_1 = self.beep_probability(self.distance(bot_position, pair[0]))
+        prob_beep_cell_2 = self.beep_probability(self.distance(bot_position, pair[1]))
+        return 1 - (1 - prob_beep_cell_1) * (1 - prob_beep_cell_2)
+
+
+    def choose_next_move(self, pair_probabilities):
+        # Find the pair with the highest probability
+        highest_prob_pair = max(pair_probabilities, key=pair_probabilities.get)
+
+        # Determine the cell in this pair closest to the bot's current position
+        closest_cell = min(highest_prob_pair, key=lambda cell: self.distance(self.botPosition, cell))
+
+        return closest_cell
+    
+
+    def run_detection(self, bot_position):
+        # Check the probability of detecting a beep from each leak
+        detection_probability = 0
+        for i in range(self.D):
+            for j in range(self.D):
+                if self.grid[i][j].hasLeak:
+                    leak_probability = self.beep_probability(self.distance(bot_position, (i, j)))
+                    detection_probability = max(detection_probability, leak_probability)
+
+        return random.random() < detection_probability
+
+    def bot8(self):
+        pair_probabilities = self.pair_probabilities
+        self.placeLeak()  # Place the second leak
+        
+        total_actions = 0
+        leaks_plugged = 0
+
+        while leaks_plugged < 2:
+            self.update_pair_probability_on_move(pair_probabilities, self.botPosition)
+
+            # Detect beep and update probabilities
+            beep_detected = self.run_detection(self.botPosition)
+            if beep_detected:
+                self.update_pair_probability_on_beep(pair_probabilities, self.botPosition)
+            else:
+                self.update_pair_probability_on_no_beep(pair_probabilities, self.botPosition)
+
+            # Normalize probabilities after updates
+            self.normalize_probabilities(pair_probabilities)
+
+            # Decide the next move
+            next_location = self.choose_next_move(pair_probabilities)
+            path = self.path_from_to(self.botPosition, next_location)
+
+            # Move to the next location
+            for cell in path:
+                self.updateBotPosition(cell)
+                total_actions += 1
+
+            # Check if the bot has found the leak
+            if self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+                self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak = False  # Plug the leak
+                leaks_plugged += 1
+                # Reinitialize pair probabilities after plugging a leak
+                self.pair_probabilities = self.initialize_pair_probability_matrix()
+
+        return total_actions
+
+    
+
+    def normalize_probabilities(self, pair_probabilities):
+        total_prob = sum(pair_probabilities.values())
+        for pair in pair_probabilities:
+            pair_probabilities[pair] /= total_prob
 
     #visual representation of the grid        
     def printGrid(self):
@@ -449,22 +659,23 @@ if __name__ == "__main__":
     ship = Ship(D, 10, alpha)
 
 
-    bot = 3  # Choose the bot number here
+    bot = 8  # Choose the bot number here
     if bot == 1:
         total_actions = ship.bot1()
     elif bot == 2:
         total_actions = ship.bot2()
     elif bot == 3:
         total_actions = ship.bot3()  # Run bot3
+    elif bot == 5: 
+        total_actions = ship.bot5()
+    elif bot == 7:
+        total_actions = ship.bot7()
+    elif bot == 8:
+        total_actions = ship.bot8()
 
-    print(f"Total actions for Bot {bot}: {total_actions}")
+    print("final showdown")
     ship.printGrid()
+    print(f"Total actions for Bot {bot}: {total_actions}")
+    
 
-
-
-"""
-our bot 3 is taking more actions- action is 1 for detect and distance for move
-bot 7- which is two leaks. how to change/ update the probabilities.
-
-
-"""
+#check for why beep_prob is taken as 1
