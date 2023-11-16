@@ -423,6 +423,63 @@ class Ship:
 
         return total_actions
 
+    def should_sense(self, current_position, probability_matrix, Probability_Threshold):
+        return probability_matrix[current_position] >= Probability_Threshold
+
+    def decide_next_location(self, probability_matrix, threshold):
+    # Filter cells above the threshold
+        potential_targets = {cell: prob for cell, prob in probability_matrix.items() if prob >= threshold}
+
+        if not potential_targets:
+        # No cell meets the threshold; could use a different strategy here
+            return max(probability_matrix, key=probability_matrix.get)
+
+    # Move to the cell with the highest probability above the threshold
+        return max(potential_targets, key=potential_targets.get)
+
+    
+
+    def bot4(self):
+        probability_matrix = self.initialize_probability_matrix()
+        total_actions = 0
+        
+        
+
+        while not self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+            probability_matrix = self.bot_enters_cell_probability_update(probability_matrix, self.botPosition)
+            total_probability = sum(probability_matrix.values())
+            open_cells = [(i, j) for i in range(self.D) for j in range(self.D) if not self.grid[i][j].isClosed]
+            num_open_cells = len(open_cells)
+            average_probability = total_probability /num_open_cells
+            Probability_Threshold = average_probability
+        # Decide whether to sense based on distance from last sensed position or other criteria
+            if self.should_sense(self.botPosition, probability_matrix, Probability_Threshold):
+                distance_to_nearest_leak = min(self.distance(self.botPosition, cell) for cell in probability_matrix if self.grid[cell[0]][cell[1]].hasLeak)
+                beep = random.random() <= self.beep_probability(distance_to_nearest_leak)
+                total_actions += 1
+                
+
+            # Update probability based on beep detection
+                if beep:
+                    probability_matrix = self.beep_probability_update(probability_matrix, self.botPosition)
+                else:
+                    probability_matrix = self.no_beep_probability_update(probability_matrix, self.botPosition)
+
+         # Decide next location based on enhanced strategy
+            next_location = self.get_location_of_max_probability(probability_matrix)
+            if probability_matrix[next_location] >= Probability_Threshold: 
+                path = self.path_from_to(self.botPosition, next_location)
+            else:
+                break
+
+
+            for cell in path:
+                self.botPosition = cell
+                total_actions += 1
+
+        return total_actions
+
+
 
 
     def bot5(self):
@@ -479,6 +536,157 @@ class Ship:
                     break
 
         return total_actions
+
+    def find_closest_cell_to_pairs(self, potential_leak_pairs):
+        # Find the cell that is closest to any pair of potential leak locations
+        min_distance = float('inf')
+        closest_cell = self.botPosition
+
+        for pair in potential_leak_pairs:
+            for cell in pair:
+                dist = self.distance(self.botPosition, cell)
+                if dist < min_distance:
+                    min_distance = dist
+                    closest_cell = cell
+
+        return closest_cell
+
+    def is_pair_in_detection_square(self, pair):
+        return pair[0] in self.detectionSQ or pair[1] in self.detectionSQ
+    
+    def is_pair_notin_detection_square(self, pair):
+       
+        return pair[0] in self.detectionSQ or pair[1] in self.detectionSQ
+     
+
+
+    def bot6(self):
+        # Initialize all pairs of open cells as potential leak locations
+        self.placeLeak()
+        open_cells = [(i, j) for i in range(self.D) for j in range(self.D) if not self.grid[i][j].isClosed]
+        potential_leak_pairs = list(combinations(open_cells, 2))
+        
+        visited_cells = set()
+        total_actions = 0
+        first_leak_found = False
+        leaks_plugged = 0
+
+        while leaks_plugged < 2:
+            self.updateDetectionSquare()
+            self.printGrid()
+            if first_leak_found == True:
+                MAY_CONTAIN_LEAK = [(i, j) for i in range(self.D) for j in range(self.D)
+                            if not self.grid[i][j].isClosed and not self.grid[i][j].hasBot]
+                if self.runDetectionSquare():
+                    MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).intersection(self.detectionSQ))
+                    print("Leak detected!")
+
+                    # Create the shortest path to the leak location
+                    shortest_path = self.calculateShortestPathBFS(self.botPosition)
+
+                    if shortest_path:
+                        # Move along the shortest path
+                        for next_location in shortest_path:
+                            total_actions += 1
+                            self.updateBotPosition(next_location)
+                            self.printGrid()
+                            visited_cells.add(next_location)
+                            
+
+                        # Clear MAY_CONTAIN_LEAK since the leak has been found
+                        leaks_plugged += 1
+                        MAY_CONTAIN_LEAK = []
+                    else:
+                        print("Error: Shortest path not found.")
+                        
+                        break
+
+                else:
+                    MAY_CONTAIN_LEAK = list(set(MAY_CONTAIN_LEAK).difference(self.detectionSQ))
+
+                    next_locations = []
+
+                    if MAY_CONTAIN_LEAK:
+                        min_distance = float('inf')
+
+                        for location in MAY_CONTAIN_LEAK:
+                            dist = self.distance(self.botPosition, location)
+                            if dist < min_distance:
+                                if location not in visited_cells:
+                                    min_distance = dist
+                                    next_locations = [location]
+                            elif dist == min_distance and location not in visited_cells:
+                                next_locations.append(location)
+
+                        if next_locations:
+                            next_location = random.choice(next_locations)
+                            total_actions += self.distance(self.botPosition, next_location)
+                            self.updateBotPosition(next_location)
+                            
+                        
+                            self.printGrid
+                            visited_cells.add(next_location)
+                            if self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+                                leaks_plugged += 1
+                        else:
+                             # No available next locations
+                            break
+
+        
+
+            
+            if not first_leak_found:
+                    if self.runDetectionSquare():
+                        potential_leak_pairs = [pair for pair in potential_leak_pairs if self.is_pair_in_detection_square(pair)]
+                        print("Leak detected!")
+                        
+                        
+                    else:
+                        potential_leak_pairs = [pair for pair in potential_leak_pairs if not self.is_pair_notin_detection_square(pair)]
+
+                        
+                    # Move to the cell closest to any pair in potential_leak_pairs
+                    
+                    next_locations = []
+
+                    if potential_leak_pairs:
+                        min_distance = float('inf')
+                        visitedpairs = []
+                        for pair in potential_leak_pairs:
+                            for cell in pair:
+                                if cell not in visitedpairs:
+                                    dist = self.distance(self.botPosition, cell)
+                                    if dist < min_distance:
+                                        if cell not in visited_cells:
+                                            min_distance = dist
+                                            next_locations = [cell]
+                                            visitedpairs.append(cell)
+                                    elif dist == min_distance and cell not in visited_cells:
+                                        next_locations.append(cell)
+                                        visitedpairs.append(cell)
+
+                        if next_locations:
+                            next_location = random.choice(next_locations)
+                            total_actions += self.distance(self.botPosition, next_location)
+                            self.updateBotPosition(next_location)
+                            visited_cells.add(next_location)
+                            if self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak:
+                                if not first_leak_found:
+                                        first_leak_found = True
+                                        potential_leak_pairs = [pair for pair in potential_leak_pairs if next_location not in pair]
+                                        self.grid[self.botPosition[0]][self.botPosition[1]].hasLeak = False # Plug the leak
+                                        leaks_plugged += 1
+                                else:
+                                    # Second leak found
+                                        return total_actions
+                        else:
+                            total_actions = -1  # No available next locations
+                        
+                    
+                
+
+        return total_actions             # If here, no more pairs to check
+
 
 
     def bot7(self):
@@ -659,15 +867,19 @@ if __name__ == "__main__":
     ship = Ship(D, 10, alpha)
 
 
-    bot = 8  # Choose the bot number here
+    bot = 7  # Choose the bot number here
     if bot == 1:
         total_actions = ship.bot1()
     elif bot == 2:
         total_actions = ship.bot2()
     elif bot == 3:
         total_actions = ship.bot3()  # Run bot3
+    elif bot == 4: 
+        total_actions = ship.bot4()
     elif bot == 5: 
         total_actions = ship.bot5()
+    elif bot == 6: 
+        total_actions = ship.bot6()
     elif bot == 7:
         total_actions = ship.bot7()
     elif bot == 8:
